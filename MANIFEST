@@ -1,7 +1,7 @@
-Changes
-Graph.pm
-MANIFEST
-Makefile.PL
-test.pl
-README
-compiler-a3.patch
+Changes			List of changes
+Graph.pm		The Module
+MANIFEST		This list
+Makefile.PL		The Makefile maker
+test.pl			The test script
+README			The Instructions
+compiler-a3.patch	A patch against Malcolm's compiler

@@ -1,18 +1,18 @@
 # B/Graph.pm
-# Copyright (C) 1997 Stephen McCamant. All rights reserved.
-# This program is free software; you can redistribute and/or modifiy it
+# Copyright (C) 1997,1998 Stephen McCamant. All rights reserved.  This
+# program is free software; you can redistribute and/or modifiy it
 # under the same terms as Perl itself.
 package B::Graph;
-$VERSION = 0.02;
+$VERSION = 0.03;
 
 use 5.004; # Some 5.003_??s might work
-use B qw(class main_start main_root main_cv sv_undef svref_2object);
+use B qw(class main_start main_root main_cv sv_undef svref_2object ppname);
 use B::Asmdata qw(@specialsv_name);
 
 my %nodes; # addr => have we printed it?
 my @edges; # [from => to, line, type]
 my @todo; # nodes to print
-my($addrs, $type, $style, $sv_shape, $dump_svs, $dump_stashes);
+my($addrs, $type, $style, $sv_shape, $dump_svs, $dump_stashes, $filegvs);
  
 sub ad {
     return $ {$_[0]};
@@ -52,7 +52,8 @@ sub proclaim_node {
 		    } else {
 			push @lines, "$l[1]";
 		    }
-		    push @edges, [$title, $l[2], scalar(@lines), $l[3]];
+		    push @edges, [$title, $l[2], scalar(@lines), $l[3]]
+			unless @lines > 55;
 		}
 	    } elsif ($l[0] eq "val") {
 		push @lines, "$l[1]: $l[2]" if $l[2];
@@ -60,6 +61,8 @@ sub proclaim_node {
 		my($v) = $l[2];
 		$v =~ s/([\x00-\x1f\"\x80-\xff])/
 		        "\\\\x" . sprintf("%x", $1)/eg;
+		$v = substr($v,0,10) . "..." . substr($v, -10)
+		    if length $v > 23;
 		push @lines, qq/$l[1]: '$v'/ if $v;
 	    } else {
 		die "unknown node info type: $l[0] (@_)!\n";
@@ -101,6 +104,8 @@ sub proclaim_node {
 	    } elsif ($l[0] eq "sval") {
 		my($v) = $l[2];
 		$v =~ s/([\x00-\x1f\"\x80-\xff<>])/"\\x".sprintf("%x", $1)/eg;
+		$v = substr($v,0,10) . "..." . substr($v, -10)
+		    if length $v > 23;
 		push @lines, qq/$l[1]: '$v'/ if $v;
 	    } else {
 		die "unknown node info type: $l[0] (@_)!\n";
@@ -131,6 +136,8 @@ sub proclaim_node {
 	    } elsif ($l[0] eq "sval") {
 		my($v) = $l[2];
 		$v =~ s/([\x00-\x1f\"\x80-\xff])/"\\x" . sprintf("%x", $1)/eg;
+		$v = substr($v,0,10) . "..." . substr($v, -10)
+		    if length $v > 23;
 		push @lines, qq/$l[1]: "$v"/ if $v;
 	    } elsif ($l[0] eq "color" or $l[0] eq "shape") {
 	    } else {
@@ -208,7 +215,8 @@ sub op_common {
 	    node($kid->graph);
 	}
     }
-    my($n) = $op->ppaddr;
+    my($n) = substr(ppname($op->type), 3);
+    my($null) = $n eq "null";
     return (
 	    ['title' => $$op],
 	    ['color' => {'OP' => 0, 'UNOP' => 1, 'BINOP' => 2,
@@ -217,12 +225,13 @@ sub op_common {
 			 'PVOP' => 9, 'GVOP' => 10, 'CVOP' => 11,
 			 'LOOP' => 12}->{class($op)} || 0],
 	    ['text', join("", $n, " (", class($op), ")")],
+	    ($null ? ['text', " was " . substr(ppname($op->targ), 3)] : ()),
 	    ($addrs ? ['text', sprintf("%x", $$op)] : ()),
 	    ['val', "op_type", $op->type],
 	    ['sval', "op_flags", op_flags($op->flags)],
 	    ['link', "op_next", ad($op->next), ($n ne "pp_cond_expr") && 2],
 	    ['link', "op_sibling", ad($op->sibling), 1],
-	    ['val', "op_targ", $op->targ],
+	    ($null ? () : ['val', "op_targ", $op->targ]),
 	    ['val', "op_seq", $op->seq],
 	    ['val', "op_private", $op->private],
 	    );
@@ -356,7 +365,7 @@ sub B::COP::graph {
     my(@l) = (op_common($op),
 	      ['val', "cop_label", $op->label],
 	      ['link', "cop_stash", ad($op->stash), 0],
-	      ['link', "cop_filegv", $$filegv, 0],
+	      ($filegvs ? ['link', "cop_filegv", $$filegv, 0] : ()),
 	      ['val', "cop_seq", $op->cop_seq],
 	      ['val', "cop_arybase", $op->arybase],
 	      ['val', "cop_line", $op->line],
@@ -422,9 +431,9 @@ sub sv_flags {
     push @v, "L" if $x & 0x200000;
     push @v, "B" if $x & 0x400000;
     push @v, "Ro" if $x & 0x800000;
-    push @v, "(i)" if $x & 0x1000000;
-    push @v, "(n)" if $x & 0x2000000;
-    push @v, "(p)" if $x & 0x4000000;
+    push @v, "i" if $x & 0x1000000;
+    push @v, "n" if $x & 0x2000000;
+    push @v, "p" if $x & 0x4000000;
     push @v, "S" if $x & 0x8000000;
     push @v, "V" if $x & 0x10000000;
     return join("", @v);
@@ -615,7 +624,7 @@ sub B::HV::graph {
     my ($hv) = @_;
     return unless $dump_svs;
     my(@array) = $hv->ARRAY;
-    my($k, $v, $n, @values);
+    my($k, $v, @values);
     return if $nodes{$$hv}++;
     my(@l) = sv_common($hv);
     push @l, ['text', "ARRAY:"];
@@ -623,7 +632,7 @@ sub B::HV::graph {
 	($k, $v) = (shift(@array), shift(@array));
 	$k = "''" if $k eq '"';
 	next if $k =~ /_</ or $k =~ /::/;
-	if ($v and ($n++ < 55 or $type ne "vcg")) {
+	if ($v) {
 	    push @l, ['link', "$k => ", $$v, 0];
 	} else {
 	    push @l, ['text', "$k => $$v"];
@@ -665,7 +674,7 @@ sub B::GV::graph {
 	      ['link', 'IO', ad($gv->IO), 0],
 	      ['val', 'CVGEN', $gv->CVGEN],
 	      ['val', 'LINE', $gv->LINE],
-	      ['link', 'FILEGV', ad($gv->FILEGV), 0],
+	      ($filegvs ? ['link', 'FILEGV', ad($gv->FILEGV), 0] : ()),
 	      ['val', 'GvFLAGS', $gv->GvFLAGS],
 	      );
     node($sv->graph) if $sv;
@@ -705,7 +714,8 @@ sub B::SPECIAL::graph {
     my $sv = shift;
     return unless $dump_svs;
     return if $nodes{$$sv}++;
-    return (['title', $$sv],
+    return (['shape', $sv_shape],
+	    ['title', $$sv],
 	    ['text', $specialsv_name[$$sv]],
 	    );
 }
@@ -720,50 +730,56 @@ sub B::NULL::graph {
     } else {
 	$t = ($type eq "text" ? "   NULL   " : "NULL");
     }
-    return (['title', $$sv],
+    return (['shape', $sv_shape],
+	    ['title', $$sv],
 	    ['text', $t],
 	    );
 }
 
 sub compile {
-    my($arg);
+    my($arg, $opt);
     my(@objs);
     $style = 1;
     $dump_stashes = 0;
     $dump_svs = 1;
+    $filegvs = 0;
     $sv_shape = 'ellipse';
     $addrs = 0;
     $type = 'text';
     for $arg (@_) {
 	if (substr($arg, 0, 1) eq "-") {
-	    $arg = lc $arg;
-	    $arg =~ tr/_-//d;
-	    if ($arg eq "stashes") {
+	    $opt = lc $arg;
+	    $opt =~ tr/_-//d;
+	    if ($opt eq "stashes") {
 		$dump_stashes = 1;
-	    } elsif ($arg eq "nostashes") {
+	    } elsif ($opt eq "nostashes") {
 		$dump_stashes = 0;
-	    } elsif ($arg eq "compileorder") {
+	    } elsif ($opt eq "compileorder") {
 		$style = 1;
-	    } elsif ($arg eq "runorder") {
+	    } elsif ($opt eq "runorder") {
 		$style = 0;
-	    } elsif ($arg eq "svs") {
+	    } elsif ($opt eq "svs") {
 		$dump_svs = 1;
-	    } elsif ($arg eq "nosvs") {
+	    } elsif ($opt eq "nosvs") {
 		$dump_svs = 0;
-	    } elsif ($arg eq "ellipses") {
+	    } elsif ($opt eq "ellipses") {
 		$sv_shape = 'ellipse';
-	    } elsif ($arg eq "rhombs") {
+	    } elsif ($opt eq "rhombs") {
 		$sv_shape = 'rhomb';
-	    } elsif ($arg eq "text") {
+	    } elsif ($opt eq "text") {
 		$type = 'text';
-	    } elsif ($arg eq "vcg") {
+	    } elsif ($opt eq "vcg") {
 		$type = 'vcg';
-	    } elsif ($arg eq "dot") {
+	    } elsif ($opt eq "dot") {
 		$type = 'dot';
-	    } elsif ($arg eq "addrs") {
+	    } elsif ($opt eq "addrs") {
 		$addrs = 1;
-	    } elsif ($arg eq "noaddrs") {
+	    } elsif ($opt eq "noaddrs") {
 		$addrs = 0;
+	    } elsif ($opt eq "filegvs") {
+		$filegvs = 1;
+	    } elsif ($opt eq "nofilegvs") {
+		$filegvs = 0;
 	    }
 	} else {
 	    push @objs, \*{"main::$arg"};
@@ -820,6 +836,7 @@ sub compile {
 	    }
 	}
 	print "}\n" if $type eq "vcg" or $type eq "dot"; 
+	%nodes = @edges = @todo = ();
     }
     
 }
@@ -927,6 +944,14 @@ structures -- there's one GV and another SV for each magic variable, plus
 all of @INC and %ENV, and so on. To prevent information overload, then,
 the display of stashes is disabled by default.
 
+=head2 -fileGVs, -no_fileGVs
+
+Another kind graph element that can be annoying are the pointers from
+every GV and COP (a kind of OP that occurs for every statement) to the
+GV that represents the file from which that code came (used for error
+messages). By default, these links aren't shown, to keep them from
+cluttering the graph.
+
 =head1 WHAT DOES THIS ALL MEAN?
 
 =head2 SvFLAGS abbreviations
@@ -947,9 +972,9 @@ the display of stashes is disabled by default.
     L      SVf_OOK       has valid offset value (mnemonic: lvalue)
     B      SVf_BREAK     refcnt is artificially low
     Ro     SVf_READONLY  may not be modified
-    (i)    SVp_IOK       has valid non-public integer value
-    (n)    SVp_NOK       has valid non-public numeric value
-    (p)    SVp_POK       has valid non-public pointer value
+    i      SVp_IOK       has valid non-public integer value
+    n      SVp_NOK       has valid non-public numeric value
+    p      SVp_POK       has valid non-public pointer value
     S      SVp_SCREAM    has been studied?
     V      SVf_AMAGIC    has magical overloaded methods
 
@@ -966,6 +991,12 @@ the display of stashes is disabled by default.
     M      OPf_MOD          Will modify (lvalue).
     T      OPf_STACKED      Some arg is arriving on the stack.
     *      OPf_SPECIAL      Do something weird for this op (see op.h)        
+
+=head1 BUGS
+
+VCG has a problem with boxes that have more than about 55 arrows
+coming out of them, so with large arrays and hashes B::Graph will
+stop outputting edges and some boxes may be disconnected.
 
 =head1 AUTHOR
 

@@ -7,3 +7,13 @@ Revision history for Perl extension B::Graph.
 	- Added README
 	- Minor cleanups, fixed SYNOPSIS
 	- Enhanced realism of pink pointers
+
+0.03
+	- Limited length of string values printed
+	- Limited number of edges from one node for VCG
+	- Made FILEGV links optional
+	- Eliminated `pp_' prefix on OP nodes
+	- Enhanced OP_NULL handling to show op_targ as old type
+	- Shortened private [INP]OK abbreviations
+	- Made special SVs SV-shaped
+	- Cleaned up globals to make multiple calls possible

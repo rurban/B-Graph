@@ -1,8 +1,8 @@
-B::Graph, version 0.02
+B::Graph, version 0.03
 
-Copyright (C) 1997 Stephen McCamant. All rights reserved. This program
-is free software; you can redistribute and/or modify it under the same
-terms as Perl itself.
+Copyright (C) 1997,1998 Stephen McCamant. All rights reserved. This
+program is free software; you can redistribute and/or modify it
+under the same terms as Perl itself.
 
 Module list information:
 B::Graph	adpr	Perl Compiler backend to diagram OP trees
@@ -14,6 +14,17 @@ others would be easy). It examines the internal structures that perl
 builds to represent your code (OPs and SVs), and generates
 specifications for multicolored boxes and arrows to represent them.
 
+New in this version:
+  - Limited length of string values printed
+  - Limited number of edges from one node for VCG
+  - Made FILEGV links optional
+  - Eliminated `pp_' prefix on OP nodes
+  - Enhanced OP_NULL handling to show op_targ as old type
+  - Shortened private [INP]OK abbreviations
+  - Made special SVs SV-shaped
+  - Cleaned up globals to make multiple calls possible (for mod_perl)
+
+
 Other things you need:
 
 perl 5.004	(some 5.003_?? versions might work, as would 5.003
@@ -22,7 +33,7 @@ perl 5.004	(some 5.003_?? versions might work, as would 5.003
 Compiler-a3	(on CPAN; other versions might work too. Note that
                  perl 5.004 added a new opcode, so you'll want to
 		 apply the included patch. This problem should be
- 		 fixed in -a4, when it's released.)
+ 		 fixed in 5.005, whenever it's released.)
 
 The graph visualization package from from AT&T (contains Dot)
 http://www.research.att.com/sw/tools/graphviz/
@@ -35,7 +46,7 @@ you'll need either a printer or an previewer)
 
 A basic understanding of how perl's internals work (see perlguts(1))
      OR
-A willingness to stare and complicated-looking diagrams, most of which
+A willingness to stare at complicated-looking diagrams, most of which
 you don't understand
 (Seriously, this module can be a good tool for learning about how perl
 works inside -- for instance, its output is a lot more intutive that
