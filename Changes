@@ -1,0 +1,9 @@
+Revision history for Perl extension B::Graph.
+
+0.01  First public release, as seen on p5p
+
+0.02  Tue Jun 17 21:18:26 1997
+	- Makefile.PL version created by h2xs 1.18
+	- Added README
+	- Minor cleanups, fixed SYNOPSIS
+	- Enhanced realism of pink pointers
