@@ -1,8 +1,8 @@
-B::Graph, version 0.50
+B::Graph, version 0.51
 
-Copyright (C) 1997, 1998 Stephen McCamant. All rights reserved. This
-program is free software; you can redistribute and/or modify it under
-the same terms as Perl itself.
+Copyright (C) 1997, 1998, 2000 Stephen McCamant. All rights reserved.
+This program is free software; you can redistribute and/or modify
+it under the same terms as Perl itself.
 
 Module list information:
 B::Graph	bdpr	Perl Compiler backend to diagram OP trees
@@ -15,24 +15,17 @@ builds to represent your code (OPs and SVs), and generates
 specifications for multicolored boxes and arrows to represent them.
 
 New in this version:
-        - Moved to beta-level along with rest of compiler
-        - Increased version number to 0.50 for beta
-        - Cleanups motivated by -w
-        - Fixed dual string/numeric value SVs
-        - Made all SV field labels all-caps
-        - Added edge classes for VCG
-        - Removed PMOP fields gone in recent development versions
-        - Made op_seq and op_type optional
-        - Made -run_order actually walk in run-order
-        - Distinguished between op_nexts and other runtime pointers
-        - Removed `op_' prefix on OP fields 
-        - Removed bogus `CVOP' class
+ - Turned off fileGVs in versions that don't have them
+ - Minor doc cleanups
+ - Changed my email address
+
+This version should work with perl 5.6.0.
 
 Other things you need:
 
-* perl 5.005
+* perl 5.005 or later
 
-(Older versions of perl will work to various extents with old alpha
+(Earlier versions of perl will work to various extents with old alpha
 versions of the compiler, but the version in 5.005 has several fixes,
 so it is recommended.)
 
@@ -89,4 +82,4 @@ For more detailed information, see the POD at the end of Graph.pm.
 
 
 Send questions, bug reports, and feature requests to me, Stephen
-McCamant <alias@mcs.com>.
+McCamant <smcc@CSUA.Berkeley.EDU>.

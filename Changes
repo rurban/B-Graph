@@ -31,3 +31,8 @@ Revision history for Perl extension B::Graph.
 	- Distinguished between op_nexts and other runtime pointers
 	- Removed `op_' prefix on OP fields
 	- Removed bogus `CVOP' class
+
+0.51  Sun Dec 31 2000
+	- Turned off fileGVs in versions that don't have them
+	- Minor doc cleanups
+	- Changed my email address

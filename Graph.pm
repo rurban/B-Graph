@@ -1,9 +1,9 @@
 # B/Graph.pm
-# Copyright (C) 1997, 1998 Stephen McCamant. All rights reserved.  This
-# program is free software; you can redistribute and/or modifiy it
+# Copyright (C) 1997, 1998, 2000 Stephen McCamant. All rights reserved.
+# This program is free software; you can redistribute and/or modifiy it
 # under the same terms as Perl itself.
 package B::Graph;
-$VERSION = "0.50";
+$VERSION = "0.51";
 
 use 5.004; # Some 5.003_??s might work; most recently tested w/5.005
 use B qw(class main_start main_root main_cv sv_undef svref_2object ppname);
@@ -420,7 +420,8 @@ sub B::PMOP::graph {
 sub B::COP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
-    my ($filegv) = $op->filegv;
+    my $filegv;
+    $filegv = $op->filegv if $filegvs;
     my(@l) = (op_common($op),
 	      ['val', "label", $op->label],
 	      ($dump_stashes ? ['link', "stash", ad($op->stash), 0] : ()),
@@ -429,7 +430,7 @@ sub B::COP::graph {
 	      ['val', "arybase", $op->arybase],
 	      ['val', "line", $op->line],
 	      );
-    node($filegv->graph);
+    node($filegv->graph) if $filegvs;
     return @l;
 }
 
@@ -633,7 +634,8 @@ sub B::CV::graph {
     my($root) = $sv->ROOT;
     my($padlist) = $sv->PADLIST;
     my($gv) = $sv->GV;
-    my($filegv) = $sv->FILEGV;
+    my $filegv = "";
+    $filegv = $sv->FILEGV if $filegvs;
     return if $nodes{$$sv}++;
     local(@padnames) = fill_pad($sv) if $targlinks;
     node($start->graph) if $start;
@@ -648,7 +650,7 @@ sub B::CV::graph {
 	    ['link', 'START', $$start, 2],
 	    ['link', 'ROOT', $$root, 0],
 	    ['link', 'GV', $$gv, 0],
-	    ['link', 'FILEGV', $$filegv, 0],
+	    ($filegvs ? ['link', 'FILEGV', $$filegv, 0] : ()),
 	    ['val', 'DEPTH',$sv->DEPTH, 0],
 	    ['link', 'PADLIST', $$padlist, 0],
 	    ['link', 'OUTSIDE', ad($sv->OUTSIDE), 0],
@@ -830,7 +832,11 @@ sub compile {
 	    } elsif ($opt eq "noaddrs") {
 		$addrs = 0;
 	    } elsif ($opt eq "filegvs") {
-		$filegvs = 1;
+		if ($] >= 5.005_63) {
+		    warn "fileGVs aren't available in this version of Perl\n";
+		} else {
+		    $filegvs = 1;
+		}
 	    } elsif ($opt eq "nofilegvs") {
 		$filegvs = 0;
 	    } elsif ($opt eq "seqs") {
@@ -1028,7 +1034,9 @@ Another kind graph element that can be annoying are the pointers from
 every GV and COP (a kind of OP that occurs for every statement) to the
 GV that represents the file from which that code came (used for error
 messages). By default, these links aren't shown, to keep them from
-cluttering the graph.
+cluttering the graph. Also, perl's internal interfaces changed in a
+recent version, so in perl 5.005_63 or later you can't see the fileGVs at
+all.
 
 =head2 -SEQs, -no_SEQs
 
@@ -1036,7 +1044,8 @@ As it is visited in the peephole optimization phase, each OP gets a
 sequence number, which is currently used by anything (except the peephole
 optimizer, to avoid visiting OPs twice). If you want to see these, ask
 for them. (COPs have their own sequence numbers too, but they're more
-generally useful).
+interesting to look at -- for instance, they're used to bound the lifetimes
+of lexicals).
 
 =head2 -types, -no_types
 
@@ -1049,8 +1058,9 @@ The default is no_types.
 Almost every OP has an op_next and an op_sibling pointer, and B::Graph
 colors them distinctively (pink and light blue, respectively). Because of
 this, it isn't strictly necessary to 'anchor' the arrow on a line in
-the OP's box saying 'op_next'. To avoid these extra lines, you can use
-the 'float' option. Unlabeled arrows can be confusing, though, so the
+the OP's box saying 'op_next'. The float option lets the graph layout
+engine start these arrows wherever it wants, which can sometimes lead to a
+more pleasing layout, at the expense of being less obvious. The
 default is not to float.
 
 =head2 -targlinks, -no_targlinks
@@ -1111,13 +1121,13 @@ stop outputting edges and some boxes may be disconnected.
 
 =head1 AUTHOR
 
-Stephen McCamant <alias@mcs.com>
+Stephen McCamant <smcc@CSUA.Berkeley.EDU>
 
 =head1 SEE ALSO
 
 L<dot(1)>, L<xvcg(1)>, L<perl(1)>, L<perlguts(1)>.
 
 If you like B::Graph, you might also be interested in Gisle Aas's
-PerlGuts Illustrated, at C<http://home.sol.no/~aas/perl/guts/>.
+PerlGuts Illustrated, at C<http://gisle.aas.no/perl/illguts/>.
 
 =cut
