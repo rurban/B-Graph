@@ -1,18 +1,22 @@
 # B/Graph.pm
-# Copyright (C) 1997,1998 Stephen McCamant. All rights reserved.  This
+# Copyright (C) 1997, 1998 Stephen McCamant. All rights reserved.  This
 # program is free software; you can redistribute and/or modifiy it
 # under the same terms as Perl itself.
 package B::Graph;
-$VERSION = 0.03;
+$VERSION = "0.50";
 
-use 5.004; # Some 5.003_??s might work
+use 5.004; # Some 5.003_??s might work; most recently tested w/5.005
 use B qw(class main_start main_root main_cv sv_undef svref_2object ppname);
 use B::Asmdata qw(@specialsv_name);
+
+use strict;
 
 my %nodes; # addr => have we printed it?
 my @edges; # [from => to, line, type]
 my @todo; # nodes to print
-my($addrs, $type, $style, $sv_shape, $dump_svs, $dump_stashes, $filegvs);
+my($addrs, $type, $style, $sv_shape, $dump_svs, $dump_stashes, $filegvs,
+   $seqs, $types, $float, $targlinks);
+use vars '@padnames'; # should be my(), but I want to use local() on it
  
 sub ad {
     return $ {$_[0]};
@@ -38,19 +42,22 @@ sub proclaim_node {
 		$title = $l[1];
 	    } elsif ($l[0] eq "color") {
 		$color = ('white', 'lightgrey', 'lightblue', 'lightred',
-		   'lightgreen', 'lightyellow', 'lightmagenta',
-		   'lightcyan', 'lilac', 'yellow', 'green', 'cyan',
+		   'lightgreen', 'lightyellow', 'orange', 'cyan',
+		   'lightmagenta', 'yellow', 'green', 'aquamarine',
 		   'khaki')[$l[1]];
 	    } elsif ($l[0] eq "shape") {
 		$shape = $l[1];
 	    } elsif ($l[0] eq "text") {
 		push @lines, $l[1];
 	    } elsif ($l[0] eq "link") {
-		if ($l[2] != 0) {
-		    if ($addrs) {
-			push @lines, "$l[1]: " . sprintf("%x", $l[2]);
-		    } else {
-			push @lines, "$l[1]";
+		$l[3] = 0 unless defined $l[3];
+		if ($l[2]) {
+		    unless ($float and $l[3] == 1 || $l[3] == 2) {
+			if ($addrs) {
+			    push @lines, "$l[1]: " . sprintf("%x", $l[2]);
+			} else {
+			    push @lines, "$l[1]";
+			}
 		    }
 		    push @edges, [$title, $l[2], scalar(@lines), $l[3]]
 			unless @lines > 55;
@@ -59,11 +66,15 @@ sub proclaim_node {
 		push @lines, "$l[1]: $l[2]" if $l[2];
 	    } elsif ($l[0] eq "sval") {
 		my($v) = $l[2];
-		$v =~ s/([\x00-\x1f\"\x80-\xff])/
-		        "\\\\x" . sprintf("%x", $1)/eg;
-		$v = substr($v,0,10) . "..." . substr($v, -10)
-		    if length $v > 23;
-		push @lines, qq/$l[1]: '$v'/ if $v;
+		if (defined $v) {
+		    $v =~ s/([\x00-\x1f\"\x80-\xff])/
+		            "\\\\x" . sprintf("%x", ord($1))/eg;
+		    $v = substr($v,0,10) . "..." . substr($v, -10)
+			if length $v > 23;
+		    push @lines, qq/$l[1]: '$v'/;
+		} else {
+		    push @lines, "$l[1]: undef";
+		}
 	    } else {
 		die "unknown node info type: $l[0] (@_)!\n";
 	    }
@@ -91,11 +102,14 @@ sub proclaim_node {
 	    } elsif ($l[0] eq "text") {
 		push @lines, $l[1];
 	    } elsif ($l[0] eq "link") {
-		if ($l[2] != 0) {
-		    if ($addrs) {
-			push @lines, "$l[1]: " . sprintf("%x", $l[2]);
-		    } else {
-			push @lines, "$l[1]";
+		$l[3] = 0 unless defined $l[3];
+		if ($l[2]) {
+		    unless ($float and $l[3] == 1 || $l[3] == 2) {
+			if ($addrs) {
+			    push @lines, "$l[1]: " . sprintf("%x", $l[2]);
+			} else {
+			    push @lines, "$l[1]";
+			}
 		    }
 		    push @edges, [$title, $l[2], scalar(@lines), $l[3]];
 		}
@@ -103,10 +117,15 @@ sub proclaim_node {
 		push @lines, "$l[1]: $l[2]" if $l[2];
 	    } elsif ($l[0] eq "sval") {
 		my($v) = $l[2];
-		$v =~ s/([\x00-\x1f\"\x80-\xff<>])/"\\x".sprintf("%x", $1)/eg;
-		$v = substr($v,0,10) . "..." . substr($v, -10)
-		    if length $v > 23;
-		push @lines, qq/$l[1]: '$v'/ if $v;
+		if (defined $v) {
+		    $v =~ s/([\x00-\x1f\"\x80-\xff<>])/
+		            "\\\\x" . sprintf("%x", ord($1))/eg;
+		    $v = substr($v,0,10) . "..." . substr($v, -10)
+			if length $v > 23;
+		    push @lines, qq/$l[1]: '$v'/;
+		} else {
+		    push @lines, "$l[1]: undef";
+		}
 	    } else {
 		die "unknown node info type: $l[0] (@_)!\n";
 	    }
@@ -129,16 +148,23 @@ sub proclaim_node {
 	    } elsif ($l[0] eq "text") {
 		push @lines, $l[1];
 	    } elsif ($l[0] eq "link") {
-		push @lines, "$l[1] -> $l[2] ($l[3])";
-		push @edges, [$title, $l[2], scalar(@lines), $l[3]];
+		if ($l[1] and $l[2] and defined($l[3])) {
+		    push @lines, "$l[1] -> $l[2] ($l[3])";
+		    push @edges, [$title, $l[2], scalar(@lines), $l[3]];
+		}
 	    } elsif ($l[0] eq "val") {
 		push @lines, "$l[1]: $l[2]" if $l[2];
 	    } elsif ($l[0] eq "sval") {
 		my($v) = $l[2];
-		$v =~ s/([\x00-\x1f\"\x80-\xff])/"\\x" . sprintf("%x", $1)/eg;
-		$v = substr($v,0,10) . "..." . substr($v, -10)
-		    if length $v > 23;
-		push @lines, qq/$l[1]: "$v"/ if $v;
+		if (defined $v) {
+		    $v =~ s/([\x00-\x1f\"\x80-\xff])/
+		            "\\\\x" . sprintf("%x", ord($1))/eg;
+		    $v = substr($v,0,10) . "..." . substr($v, -10)
+			if length $v > 23;
+		    push @lines, qq/$l[1]: '$v'/;
+		} else {
+		    push @lines, "$l[1]: undef";
+		}
 	    } elsif ($l[0] eq "color" or $l[0] eq "shape") {
 	    } else {
 		die "unknown node info type: $l[0] (@_)!\n";
@@ -157,31 +183,39 @@ sub proclaim_node {
 }
     
 sub proclaim_edge {
+    my $anchor = !($float and $_[3] == 1 || $_[3] == 2);
     if ($type eq "vcg") {
-	print 'edge: { sourcename: "', $_[0],
-	      '" targetname: "', $_[1],
-	      '" anchor: ', $_[2] || 1,
-	      [[" priority: 5",
-		" priority: 0 color: cyan",
-		" priority: 0 color: pink",
-		" priority: 5 color: lightgrey"],
-	       [" priority: 0 color: lightgrey",
-		" priority: 0 color: cyan",
-		" priority: 10 color: magenta thickness: 8 arrowsize: 20",
-		" priority: 0 color: lightgrey"]]->[!$style][$_[3] || 0],    
+	print 'edge: { sourcename: "', $_[0], '"',
+	      ' targetname: "', $_[1], '"',
+	      ($anchor ? (' anchor: ', $_[2] || 1) : ()),
+	      [[" priority: 5 class: 1",
+		" priority: 0 color: cyan class: 2",
+		" priority: 0 color: pink class: 3",
+		" priority: 5 color: lightgrey class: 4",
+	        " priority: 0 color: lightred class: 5"],
+	       [" priority: 0 color: lightgrey class: 1",
+		" priority: 0 color: cyan class: 2",
+		" priority: 10 color: magenta thickness: 8 arrowsize: 20"
+		. " class: 3",
+		" priority: 0 color: lightgrey class: 4",
+	        " priority: 0 color: red thickness: 8 arrowsize: 20"
+		. " class: 5"]]->
+		    [$style][$_[3] || 0],
 	      qq'}\n';
     } elsif ($type eq "dot") {
-	print 'n', $_[0], ($_[2] ? ':p' . $_[2] : ""),
+	print 'n', $_[0], (($anchor && $_[2]) ? ':p' . $_[2] : ""),
 	      ' -> n', $_[1], " ",
 	      [["[weight=5]",
 		"[constraint=false,color=cyan]",
 		"[constraint=false,color=pink]",
-		"[weight=5,color=lightgrey]"],
+		"[weight=5,color=lightgrey]",
+	        "[constraint=false,color=red]"],
 	       ["[color=lightgrey]",
 		"[color=cyan]",
 		"[weight=10,color=magenta,style=bold]",
-		"[color=lightgrey]"]
-	       ]->[!$style][$_[3] || 0], ";\n";
+		"[color=lightgrey]",
+	        "[weight=10,color=red,style=bold]"]
+	       ]->[$style][$_[3] || 0], ";\n";
     } elsif ($type eq "text") {
 	print "$_[0].$_[2] -> $_[1] ($_[3])\n";
     }
@@ -209,31 +243,45 @@ sub op_flags {
 
 sub op_common {
     my($op) = @_;
-    if ($op->flags & 4 and class($op) ne "OP") { # OPf_KIDS
-	my $kid;
-	for ($kid = $op->first; $$kid; $kid = $kid->sibling) {
-	    node($kid->graph);
+    if ($style) {
+	node($op->next->graph) if ad($op->next);
+    } else {
+	if ($op->flags & 4 and class($op) ne "OP") { # OPf_KIDS
+	    my $kid;
+	    for ($kid = $op->first; $$kid; $kid = $kid->sibling) {
+		node($kid->graph);
+	    }
 	}
     }
     my($n) = substr(ppname($op->type), 3);
     my($null) = $n eq "null";
+    my(@targ);
+    if ($null or !$op->targ) {
+	@targ = ();
+    } elsif ($op->targ) {
+	if ($targlinks and $padnames[$op->targ]) {
+	    @targ = ['link', 'targ', $padnames[$op->targ], 3];
+	} else {
+	    @targ = ['val', 'targ', $op->targ];
+	}
+    }
     return (
 	    ['title' => $$op],
 	    ['color' => {'OP' => 0, 'UNOP' => 1, 'BINOP' => 2,
 			 'LOGOP' => 3, 'CONDOP' => 4, 'LISTOP' => 5,
 			 'PMOP' => 6, 'COP' => 7, 'SVOP' => 8,
-			 'PVOP' => 9, 'GVOP' => 10, 'CVOP' => 11,
+			 'PVOP' => 9, 'GVOP' => 10,
 			 'LOOP' => 12}->{class($op)} || 0],
 	    ['text', join("", $n, " (", class($op), ")")],
 	    ($null ? ['text', " was " . substr(ppname($op->targ), 3)] : ()),
 	    ($addrs ? ['text', sprintf("%x", $$op)] : ()),
-	    ['val', "op_type", $op->type],
-	    ['sval', "op_flags", op_flags($op->flags)],
-	    ['link', "op_next", ad($op->next), ($n ne "pp_cond_expr") && 2],
-	    ['link', "op_sibling", ad($op->sibling), 1],
-	    ($null ? () : ['val', "op_targ", $op->targ]),
-	    ['val', "op_seq", $op->seq],
-	    ['val', "op_private", $op->private],
+	    ($types ? ['val', "type", $op->type] : ()),
+	    ['sval', "flags", op_flags($op->flags)],
+	    ['link', "next", ad($op->next), 2 + 3*($n eq "cond_expr")],
+	    ['link', "sibling", ad($op->sibling), 1],
+	    @targ,
+	    ($seqs ? ['val', "seq", $op->seq] : ()),
+	    ['val', "private", $op->private],
 	    );
 }
 
@@ -247,7 +295,7 @@ sub B::UNOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     my(@l) = op_common($op);
-    push @l, ['link', "op_first", ad($op->first), 0];
+    push @l, ['link', "first", ad($op->first), 0];
     if (ad($op->first) and ad($op->first->sibling)) {
 	my($kid) = $op->first->sibling;
 	while ($$kid) {
@@ -262,8 +310,8 @@ sub B::BINOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     return (op_common($op),
-	    ['link', "op_first", ad($op->first), 0],
-	    ['link', "op_last", ad($op->last), 0],
+	    ['link', "first", ad($op->first), 0],
+	    ['link', "last", ad($op->last), 0],
 	    );
 }
 
@@ -271,37 +319,47 @@ sub B::LOGOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     my(@l) = op_common($op);
-    push @l, ['link', "op_first", ad($op->first), 0];
+    push @l, ['link', "first", ad($op->first), 0];
     if (ad($op->first) and ad($op->first->sibling)) {
 	my($kid) = $op->first->sibling;
 	while ($$kid) {
-	    push @l, ['link', "(stepchild)", $$kid, 3];
+	    push @l, ['link', "(child)", $$kid, 3];
 	    $kid = $kid->sibling;
 	}
     }
-    my($t) = 0;
-    $t = 2 if {'pp_or' => 1, 'pp_and' => 1, 'pp_mapwhile' => 1,
-	       'pp_grepwhile' => 1, 'pp_entertry' => 1}->{$op->ppaddr};
-    push @l, ['link', "op_other", ad($op->other), $t];
+    node($op->other->graph) if $style;
+    push @l, ['link', "other", ad($op->other), 4];
     return @l;
 }
 
 sub B::CONDOP::graph {
     my ($op) = @_;    
     return if $nodes{$$op}++;
-    return (op_common($op),
-	    ['link', "op_first", ad($op->first), 0],
-	    ['link', "op_true", ad($op->true), 2],
-	    ['link', "op_false", ad($op->false), 2],
-	    );
+    my(@l) = op_common($op);
+    if ($style) {
+	node($op->true->graph);
+	node($op->false->graph);
+    }
+    push @l, ['link', "first", ad($op->first), 0];
+    if (ad($op->first)) {
+	my($kid) = $op->first->sibling;
+	while (class($kid) ne "NULL") {
+	    push @l, ['link', "(child)", $$kid, 3];
+	    $kid = $kid->sibling;
+	}
+    }
+    push @l, (['link', "true", ad($op->true), 4],
+	      ['link', "false", ad($op->false), 4],
+	     );
+    return @l;
 }
 
 sub B::LISTOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     my(@l) = op_common($op);
-    push @l, ['link', "op_first", ad($op->first), 0];
-    push @l, ['val', "op_children", $op->children];
+    push @l, ['link', "first", ad($op->first), 0];
+    push @l, ['val', "children", $op->children];
     if (ad($op->first)) {
 	my($kid) = $op->first->sibling;
 	while (class($kid) ne "NULL" and ad($kid->sibling)) {
@@ -309,7 +367,7 @@ sub B::LISTOP::graph {
 	    $kid = $kid->sibling;
 	}
     }
-    push @l, ['link', "op_last", ad($op->last), 0];
+    push @l, ['link', "last", ad($op->last), 0];
     return @l;
 }
 
@@ -317,8 +375,8 @@ sub B::LOOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     my(@l) = op_common($op);
-    push @l, ['link', "op_first", ad($op->first), 0];
-    push @l, ['val', "op_children", $op->children];
+    push @l, ['link', "first", ad($op->first), 0];
+    push @l, ['val', "children", $op->children];
     if (ad($op->first)) {
 	my($kid) = $op->first->sibling;
 	while (class($kid) ne "NULL" and ad($kid->sibling)) {
@@ -326,10 +384,10 @@ sub B::LOOP::graph {
 	    $kid = $kid->sibling;
 	}
     }
-    push @l, (['link', "op_last", ad($op->last), 0],
-	      ['link', "op_redoop", ad($op->redoop), 2],
-	      ['link', "op_nextop", ad($op->nextop), 2],
-	      ['link', "op_lastop", ad($op->lastop), 2],
+    push @l, (['link', "last", ad($op->last), 0],
+	      ['link', "lastop", ad($op->lastop), 4],
+	      ['link', "redoop", ad($op->redoop), 4],
+	      ['link', "nextop", ad($op->nextop), 4],
 	      );
     node($op->redoop->graph);
     node($op->nextop->graph);
@@ -342,19 +400,20 @@ sub B::PMOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     my(@l) = (op_common($op),
-	      ['link', "op_first", ad($op->first), 0],
-	      ['link', "op_last", ad($op->last), 0],
-	      ['val', "op_children", $op->children],
-	      ['link', "op_pmreplroot", ad($op->pmreplroot), 0],
-	      ['link', "op_pmreplstart", ad($op->pmreplstart), 2],
-	      ['link', "op_pmnext", ad($op->pmnext), 0],
-	      ['sval', "op_pmregexp->precomp", $op->precomp],
-	      ['link', "op_pmshort", ad($op->pmshort), 0],
-	      ['val', "op_pmflags", $op->pmflags],
-	      ['val', "op_pmslen", $op->pmslen],
+	      ['link', "first", ad($op->first), 0],
+	      ['link', "last", ad($op->last), 0],
+	      ['val', "children", $op->children],
+	      ['link', "pmreplroot", ad($op->pmreplroot), 0],
+	      ['link', "pmreplstart", ad($op->pmreplstart), 4],
+	      ['link', "pmnext", ad($op->pmnext), 0],
+	      ['sval', "precomp", $op->precomp],
+	      ['val', "pmflags", $op->pmflags],
 	      );
-    node($op->pmshort->graph);
-    node($op->pmreplroot->graph);
+    if ($style) {
+	node($op->pmreplstart->graph);
+    } else {
+	node($op->pmreplroot->graph);	
+    }
     return @l;
 }
 
@@ -363,12 +422,12 @@ sub B::COP::graph {
     return if $nodes{$$op}++;
     my ($filegv) = $op->filegv;
     my(@l) = (op_common($op),
-	      ['val', "cop_label", $op->label],
-	      ['link', "cop_stash", ad($op->stash), 0],
-	      ($filegvs ? ['link', "cop_filegv", $$filegv, 0] : ()),
+	      ['val', "label", $op->label],
+	      ($dump_stashes ? ['link', "stash", ad($op->stash), 0] : ()),
+	      ($filegvs ? ['link', "filegv", $$filegv, 0] : ()),
 	      ['val', "cop_seq", $op->cop_seq],
-	      ['val', "cop_arybase", $op->arybase],
-	      ['val', "cop_line", $op->line],
+	      ['val', "arybase", $op->arybase],
+	      ['val', "line", $op->line],
 	      );
     node($filegv->graph);
     return @l;
@@ -378,7 +437,7 @@ sub B::SVOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     my(@l) = (op_common($op),
-	      ['link', "op_sv", ad($op->sv), 0],
+	      ['link', "sv", ad($op->sv), 0],
 	      );
     node($op->sv->graph);
     return @l;
@@ -388,7 +447,7 @@ sub B::PVOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     return (op_common($op),
-	    ['sval', 'op_pv', $op->pv],
+	    ['sval', 'pv', $op->pv],
 	    );
 }
 
@@ -396,19 +455,9 @@ sub B::GVOP::graph {
     my ($op) = @_;
     return if $nodes{$$op}++;
     my(@l) = (op_common($op),
-	      ['link', "op_gv", ad($op->gv), 0],
+	      ['link', "gv", ad($op->gv), 0],
 	      );
     node($op->gv->graph);
-    return @l;
-}
-
-sub B::CVOP::graph {
-    my ($op) = @_;
-    return if $nodes{$$op}++;
-    my(@l) = (op_common($op),
-	      ['link', "op_cv", ad($op->cv), 0],
-	      );
-    node($op->cv->graph);
     return @l;
 }
 
@@ -487,7 +536,7 @@ sub B::RV::graph {
     return if $nodes{$$sv}++;
     node($sv->RV->graph);
     return (sv_common($sv),
-	    ['link', 'xrv_rv', ad($sv->RV), 0],
+	    ['link', 'RV', ad($sv->RV), 0],
 	    );
 }
 
@@ -495,9 +544,9 @@ sub pv_common {
     my($sv) = @_;
     my(@l) = sv_common($sv);
     my($pv) = $sv->PV;
-    unless ($pv eq '') {
-	push @l, ['sval', 'xpv_pv', $pv];
-	push @l, ['val', 'xpv_cur', length($pv)];
+    if (defined $pv) {
+	push @l, ['sval', 'PVX', $pv];
+	push @l, ['val', 'CUR', length($pv)];
     }
     return @l;
 }
@@ -513,7 +562,7 @@ sub B::IV::graph {
     my ($sv) = @_;
     return unless $dump_svs;
     return if $nodes{$$sv}++;
-    return (sv_common($sv), ['val', 'xiv_iv', $sv->IV]);
+    return (sv_common($sv), ['val', 'IVX', $sv->IVX]);
 }
 
 sub B::NV::graph {
@@ -521,8 +570,8 @@ sub B::NV::graph {
     return unless $dump_svs;
     return if $nodes{$$sv}++;
     return (sv_common($sv),
-	    ['val', 'xiv_iv', $sv->IV],
-	    ['val', 'xnv_nv', $sv->NV],
+	    ['val', 'IVX', $sv->IVX],
+	    ['val', 'NVX', $sv->NVX],
 	    );
 }
 
@@ -530,15 +579,15 @@ sub B::PVIV::graph {
     my ($sv) = @_;
     return unless $dump_svs;
     return if $nodes{$$sv}++;
-    return (pv_common($sv), ['val', 'xiv_iv', $sv->IV]);
+    return (pv_common($sv), ['val', 'IVX', $sv->IVX]);
 }
 
 sub pvnv_common
 {
     my($sv) = @_;
     return (pv_common($sv),
-	    ['val', 'xiv_iv', $sv->IV],
-	    ['val', 'xnv_nv', $sv->NV],
+	    ['val', 'IVX', $sv->IVX],
+	    ['val', 'NVX', $sv->NVX],
 	    );
 }
 
@@ -554,9 +603,9 @@ sub B::PVLV::graph {
     return unless $dump_svs;
     return if $nodes{$$sv}++;
     return (pvnv_common($sv),
-	    ['val', 'xlv_targoff', $sv->TARGOFF],
-	    ['val', 'xlv_targlen', $sv->TARGLEN],
-	    ['sval', 'xlv_type', chr($sv->TYPE)],
+	    ['val', 'LvTARGOFF', $sv->TARGOFF],
+	    ['val', 'LvTARGLEN', $sv->TARGLEN],
+	    ['sval', 'LvTYPE', chr($sv->TYPE)],
 	    );
 }
 
@@ -565,10 +614,15 @@ sub B::BM::graph {
     return unless $dump_svs;
     return if $nodes{$$sv}++;
     return (pvnv_common($sv),
-	    ['val', 'xbm_useful', $sv->USEFUL],
-	    ['val', 'xbm_previous', $sv->PREVIOUS],
-	    ['sval', 'xbm_rare', chr($sv->RARE)],
+	    ['val', 'BmUSEFUL', $sv->USEFUL],
+	    ['val', 'BmPREVIOUS', $sv->PREVIOUS],
+	    ['sval', 'BmRARE', chr($sv->RARE)],
 	    );
+}
+
+sub fill_pad {
+    my($cv) = @_;
+    return map(ad($_), ($cv->PADLIST->ARRAY)[0]->ARRAY);
 }
 
 sub B::CV::graph {
@@ -581,6 +635,7 @@ sub B::CV::graph {
     my($gv) = $sv->GV;
     my($filegv) = $sv->FILEGV;
     return if $nodes{$$sv}++;
+    local(@padnames) = fill_pad($sv) if $targlinks;
     node($start->graph) if $start;
     node($root->graph) if $root;
     node($gv->graph) if $gv;
@@ -589,7 +644,7 @@ sub B::CV::graph {
     node($stash->graph) if $stash and $dump_stashes;
     node($sv->OUTSIDE->graph) if $sv->OUTSIDE;
     return (pvnv_common($sv),
-	    ['link', 'STASH', $$stast, 0],
+	    ($dump_stashes ? ['link', 'STASH', $$stash, 0] : ()),
 	    ['link', 'START', $$start, 2],
 	    ['link', 'ROOT', $$root, 0],
 	    ['link', 'GV', $$gv, 0],
@@ -640,7 +695,7 @@ sub B::HV::graph {
 	push @values, $v;
     }
     push @l, (['val', 'FILL', $hv->FILL],
-	      ['val', 'MAX', $hv-MAX],
+	      ['val', 'MAX', $hv->MAX],
 	      ['val', 'KEYS', $hv->KEYS],
 	      ['val', 'RITER', $hv->RITER],
 	      ['val', 'NAME', $hv->NAME],
@@ -663,7 +718,7 @@ sub B::GV::graph {
     my($name) = $gv->NAME;
     $name = "''" if $name eq '"';
     push @l, (['sval', 'NAME', $name],
-	      ['link', 'STASH', ad($gv->STASH), 0],
+	      ($dump_stashes ? ['link', 'STASH', ad($gv->STASH), 0] : ()),
 	      ['link', 'SV', $$sv, 0],
 	      ['val', 'GvREFCNT', $gv->GvREFCNT],
 	      ['link', 'FORM', ad($gv->FORM)],
@@ -724,28 +779,26 @@ sub B::NULL::graph {
     my($sv) = shift;
     return unless $dump_svs;
     return if $nodes{$$sv}++;
-    my($t);
-    if ($$sv == $ {sv_undef}) {
-	$t = "sv_undef";
-    } else {
-	$t = ($type eq "text" ? "   NULL   " : "NULL");
-    }
     return (['shape', $sv_shape],
 	    ['title', $$sv],
-	    ['text', $t],
+	    ['text', ($type eq "text" ? "   NULL   " : "NULL")],
 	    );
 }
 
 sub compile {
     my($arg, $opt);
     my(@objs);
-    $style = 1;
+    $style = 0;
     $dump_stashes = 0;
     $dump_svs = 1;
     $filegvs = 0;
     $sv_shape = 'ellipse';
     $addrs = 0;
     $type = 'text';
+    $seqs = 0;
+    $types = 0;
+    $float = 0;
+    $targlinks = 0;
     for $arg (@_) {
 	if (substr($arg, 0, 1) eq "-") {
 	    $opt = lc $arg;
@@ -755,9 +808,9 @@ sub compile {
 	    } elsif ($opt eq "nostashes") {
 		$dump_stashes = 0;
 	    } elsif ($opt eq "compileorder") {
-		$style = 1;
-	    } elsif ($opt eq "runorder") {
 		$style = 0;
+	    } elsif ($opt eq "runorder") {
+		$style = 1;
 	    } elsif ($opt eq "svs") {
 		$dump_svs = 1;
 	    } elsif ($opt eq "nosvs") {
@@ -780,8 +833,25 @@ sub compile {
 		$filegvs = 1;
 	    } elsif ($opt eq "nofilegvs") {
 		$filegvs = 0;
+	    } elsif ($opt eq "seqs") {
+		$seqs = 1;
+	    } elsif ($opt eq "noseqs") {
+		$seqs = 0;
+	    } elsif ($opt eq "types") {
+		$types = 1;
+	    } elsif ($opt eq "notypes") {
+		$types = 0;
+	    } elsif ($opt eq "float") {
+		$float = 1;
+	    } elsif ($opt eq "nofloat") {
+		$float = 0;
+	    } elsif ($opt eq "targlinks") {
+		$targlinks = 1;
+	    } elsif ($opt eq "notarglinks") {
+		$targlinks = 0;
 	    }
 	} else {
+	    no strict 'refs';
 	    push @objs, \*{"main::$arg"};
 	}
     }
@@ -791,9 +861,14 @@ sub compile {
 	print "layout_downfactor: 10\n";
 	print "layout_upfactor:   1\n";
 	print "layout_nearfactor: 5\n";
-	print "layoutalgorithm: dfs\n\n";
+	print "layoutalgorithm: dfs\n";
+	print qq'classname 1: "regular"\n';
+	print qq'classname 2: "sibling"\n';
+	print qq'classname 3: "next"\n';
+	print qq'classname 4: "fake"\n';
+	print qq'classname 5: "nextish"\n\n';
     } elsif ($type eq "dot") {
-	$pname = $0;
+	my($pname) = $0;
 	$pname = "(cmdline)" if $pname eq "-e";
 	print "digraph \"$pname\" {\n";
 	print "rankdir=LR;\nnode [shape=record];\nedge [color=black];\n";
@@ -804,7 +879,9 @@ sub compile {
 		map(unshift(@todo, [svref_2object($_)->graph]), @objs); 
 	    } else {
 		foreach my $obj (@objs) {
-		    my($cv) = svref_2object(*{*$obj}{CODE});
+		    my $cv;
+		    { no strict 'refs';
+		      $cv = svref_2object(*{*$obj}{CODE}); }
 		    if ($style == 0) {
 			node($cv->ROOT->graph);
 			unshift @todo, [$cv->START->graph];
@@ -815,7 +892,8 @@ sub compile {
 		}
 	    }
 	} else {
-	    if ($style == 0) {
+	    @padnames = fill_pad(main_cv) if $targlinks;
+	    if ($style) {
 		node((main_root)->graph);
 		unshift @todo, [(main_start)->graph];
 	    } else {
@@ -877,7 +955,7 @@ C<O> module to run correctly:
 
   perl -MO=Graph,-opt,-opt,-opt program.pl
   OR
-  perl -MO=Graph,-opt,obj -e 'print "Hello, world!\n"'
+  perl -MO=Graph,-opt,obj -e 'BEGIN {$obj = ["hi"]}; print $obj'
   OR EVEN
   perl -e 'use O qw(Graph -opt obj obj); print "hi!\n";'
 
@@ -952,6 +1030,39 @@ GV that represents the file from which that code came (used for error
 messages). By default, these links aren't shown, to keep them from
 cluttering the graph.
 
+=head2 -SEQs, -no_SEQs
+
+As it is visited in the peephole optimization phase, each OP gets a
+sequence number, which is currently used by anything (except the peephole
+optimizer, to avoid visiting OPs twice). If you want to see these, ask
+for them. (COPs have their own sequence numbers too, but they're more
+generally useful).
+
+=head2 -types, -no_types
+
+B::Graph always gives the type of each OP symbolically ('entersub'), but
+it can also print the numeric value of the type field, if you want.
+The default is no_types.
+
+=head2 -float, -no_float
+
+Almost every OP has an op_next and an op_sibling pointer, and B::Graph
+colors them distinctively (pink and light blue, respectively). Because of
+this, it isn't strictly necessary to 'anchor' the arrow on a line in
+the OP's box saying 'op_next'. To avoid these extra lines, you can use
+the 'float' option. Unlabeled arrows can be confusing, though, so the
+default is not to float.
+
+=head2 -targlinks, -no_targlinks
+
+Lexical (my()) variables and temporary values used by individual OPs
+are stored in 'pads', per-code arrays linked to the CV. OPs store
+indexes into these arrays in the 'op_targ' field, but B::Graph can
+often also draw links directly from the OP to the SV that stores the
+name of the variable. These links don't correspond to any real pointers,
+however, and they can make the graph more complicated, so they are
+disabled by default.
+
 =head1 WHAT DOES THIS ALL MEAN?
 
 =head2 SvFLAGS abbreviations
@@ -1005,5 +1116,8 @@ Stephen McCamant <alias@mcs.com>
 =head1 SEE ALSO
 
 L<dot(1)>, L<xvcg(1)>, L<perl(1)>, L<perlguts(1)>.
+
+If you like B::Graph, you might also be interested in Gisle Aas's
+PerlGuts Illustrated, at C<http://home.sol.no/~aas/perl/guts/>.
 
 =cut
