@@ -1,13 +1,14 @@
 # B/Graph.pm
 # Copyright (C) 1997, 1998, 2000 Stephen McCamant. All rights reserved.
+# Copyright (C) 2012. Reini Urban. All rights reserved.
 # This program is free software; you can redistribute and/or modifiy it
 # under the same terms as Perl itself.
 package B::Graph;
-$VERSION = "0.51";
+$VERSION = "0.52";
 
 use 5.004; # Some 5.003_??s might work; most recently tested w/5.005
-use B qw(class main_start main_root main_cv sv_undef svref_2object ppname);
-use B::Asmdata qw(@specialsv_name);
+use B qw(class main_start main_root main_cv sv_undef svref_2object ppname
+         @specialsv_name);
 
 use strict;
 
@@ -496,7 +497,7 @@ sub sv_magic {
 	push @l, (['text', 'MAGIC'],
 		  ['sval', ' TYPE', $mg->TYPE],
 		  ['val', ' PRIVATE', $mg->PRIVATE],
-		  ['val', ' FLAGS', $mg->FLAGS],
+		  ['val', ' FLAGS', sprintf("%x",$mg->FLAGS)],
 		  ['link', ' OBJ', ad($mg->OBJ)],
 		  );
 	push @l, ['sval', ' PTR', $mg->PTR] unless $mg->TYPE eq "s";
@@ -670,8 +671,8 @@ sub B::AV::graph {
     }
     push @l, (['val', 'FILL', scalar(@array)],
 	      ['val', 'MAX', $av->MAX],
-	      ['val', 'OFF', $av->OFF],
-	      ['val', 'AvFLAGS', $av->AvFLAGS]
+	      #['val', 'OFF', $av->OFF],
+	      ['val', 'AvFLAGS', sprintf("%x",$] < 5.010 ? $av->AvFLAGS : $av->FLAGS) ]
 	      );
     map(node($_->graph), @array);
     return @l;
@@ -732,7 +733,7 @@ sub B::GV::graph {
 	      ['val', 'CVGEN', $gv->CVGEN],
 	      ['val', 'LINE', $gv->LINE],
 	      ($filegvs ? ['link', 'FILEGV', ad($gv->FILEGV), 0] : ()),
-	      ['val', 'GvFLAGS', $gv->GvFLAGS],
+	      ['val', 'GvFLAGS', sprintf("%x",$gv->GvFLAGS)],
 	      );
     node($sv->graph) if $sv;
     node($av->graph) if $av;
